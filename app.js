@@ -7,12 +7,41 @@ const { Menu } = require("./models/menu");
 const { Review } = require("./models/review");
 const { Cart } = require("./models/cart");
 const { User } = require("./models/user");
-const jwt = require("jsonwebtoken");
+const { Payment } = require("./models/Payment");
 
 app.use(express.json());
 app.use(cors());
 
+//?-------------Payment start
+const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
+
+app.post("/create-payment-intent", async (req, res) => {
+  try {
+    const { price } = req.body;
+
+    if (!price || isNaN(price) || price <= 0) {
+      return res.status(400).send({ error: "Invalid price amount." });
+    }
+
+    const amount = Math.round(price * 100);
+    const paymentIntent = await stripe.paymentIntents.create({
+      amount: amount,
+      currency: "usd",
+      payment_method_types: ["card"],
+    });
+    res.send({
+      clientSecret: paymentIntent.client_secret,
+    });
+  } catch (error) {
+    console.error("Stripe Error:", error);
+    res.status(500).send({ error: "Payment failed. Please try again." });
+  }
+});
+
+//?-------------Payment end
+
 //!-------------JWT start
+const jwt = require("jsonwebtoken");
 
 app.post("/jwt", (req, res) => {
   const user = req.body;
@@ -25,14 +54,14 @@ app.post("/jwt", (req, res) => {
 //!------------- JWT VerifyToken middleware start
 
 const verifyToken = (req, res, next) => {
-  const token = req.headers.authorization.split(" ")[1];
-  if (!req.headers.authorization) {
+  const token = req.headers.authorization?.split(" ")[1];
+  if (!token) {
     return res.status(401).send({ message: "unauthorized access" });
   }
 
   jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
     if (err) {
-      return res.status(401).send({ message: "unauthorized access" });
+      return res.status(403).send({ message: "unauthorized access" });
     }
     req.decoded = decoded;
     next();
@@ -56,6 +85,33 @@ const verifyAdmin = async (req, res, next) => {
 
 //!------------- verifyAdmin middleware end
 
+app.get("/payments", async (req, res) => {
+  // console.log(req.decoded.email);
+  const email = req.query.email;
+  const query = { email: email };
+  // if (email !== req.decoded.email) {
+  //   res.status(423).send({ message: "forbidden access" });
+  // }
+  const result = await Payment.find(query);
+  res.send(result);
+});
+
+app.post("/payments", verifyToken, async (req, res) => {
+  const payment = req.body;
+  const savePayment = new Payment(payment);
+  const paymentResult = await savePayment.save();
+
+  //todo: delete each item from the cart
+  const query = {
+    _id: {
+      $in: payment.cartIds.map((id) => id),
+    },
+  };
+
+  const deleteResult = await Cart.deleteMany(query);
+  res.send({ paymentResult, deleteResult });
+});
+
 app.get("/", (req, res) => {
   res.send("Route is working");
 });
@@ -65,10 +121,48 @@ app.get("/menu", async (req, res) => {
   res.send(result);
 });
 
+app.get("/menu/:id", async (req, res) => {
+  const id = req.params.id;
+  const result = await Menu.findOne({ _id: id });
+  res.send(result);
+});
+
 app.post("/menu", verifyToken, verifyAdmin, async (req, res) => {
   const data = req.body;
   const result = await Menu.create(data);
   res.send(result);
+});
+
+app.patch("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
+  const id = req.params.id;
+  const filter = { _id: id };
+  const item = req.body;
+  const updatedDoc = {
+    $set: {
+      name: item.name,
+      category: item.category,
+      recipe: item.recipe,
+      price: item.price,
+      image: item.image,
+    },
+  };
+  console.log(updatedDoc);
+  const result = await Menu.updateOne(filter, updatedDoc);
+  res.send(result);
+});
+
+app.delete("/menu/:id", verifyToken, verifyAdmin, async (req, res) => {
+  try {
+    const menuId = req.params.id;
+    const item = await Menu.findOne({ _id: menuId });
+    if (!item) {
+      return res.status(404).send({ message: "Menu item not found" });
+    }
+    const result = await Menu.deleteOne({ _id: menuId });
+    res.send({ message: "Menu item deleted", result });
+  } catch (error) {
+    res.status(500).send({ message: "Error deleting menu item", error });
+  }
 });
 
 app.get("/review", async (req, res) => {
@@ -83,9 +177,11 @@ app.get("/users", verifyToken, verifyAdmin, async (req, res) => {
 
 app.get("/users/admin/:email", verifyToken, async (req, res) => {
   const email = req.params.email;
+
   if (email !== req.decoded.email) {
     return res.status(403).send({ message: "forbidden access" });
   }
+
   const query = { email: email };
   const user = await User.findOne(query);
   let admin = false;
@@ -107,7 +203,7 @@ app.post("/users", async (req, res) => {
   res.send(result);
 });
 
-app.patch("/users/admin/:id", async (req, res) => {
+app.patch("/users/admin/:id", verifyToken, verifyAdmin, async (req, res) => {
   const userId = req.params.id;
   const filter = { _id: userId };
   const options = { upsert: true };
@@ -120,31 +216,37 @@ app.patch("/users/admin/:id", async (req, res) => {
   res.send(result);
 });
 
-app.delete("/users/:id", async (req, res) => {
+app.delete("/users/:id", verifyToken, verifyAdmin, async (req, res) => {
   const userId = req.params.id;
   const query = { _id: userId };
   const result = await User.deleteOne(query);
   res.send(result);
 });
 
-app.delete("/users", async (req, res) => {
+app.delete("/users", verifyToken, verifyAdmin, async (req, res) => {
   const result = await User.deleteMany({});
   res.send(result);
 });
 
-app.get("/carts", async (req, res) => {
+app.get("/carts", verifyToken, async (req, res) => {
+  const email = req.query.email;
+  const result = await Cart.find({ email: email });
+  res.send(result);
+});
+
+app.get("/carts", verifyToken, async (req, res) => {
   const result = await Cart.find({});
   res.send(result);
 });
 
-app.post("/carts", async (req, res) => {
+app.post("/carts", verifyToken, async (req, res) => {
   const data = req.body;
   const newCartItem = new Cart(data);
   const result = await newCartItem.save();
   res.send(result);
 });
 
-app.delete("/carts/:id", async (req, res) => {
+app.delete("/carts/:id", verifyToken, async (req, res) => {
   const id = req.params.id;
   const query = { _id: id };
   const result = await Cart.deleteOne(query);
