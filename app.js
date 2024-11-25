@@ -114,7 +114,32 @@ app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
   res.send({ users, menuItems, orders, revenue });
 });
 
-
+app.get("/order-stats", async (req, res) => {
+  const orderPipeline = await Payment.aggregate([
+    {
+      $unwind: "$menuIds", //?splits the array into separate documents
+    },
+    {
+      $lookup: {
+        from: "menus",
+        localField: "menuIds",
+        foreignField: "_id",
+        as: "menuItems",
+      },
+    },
+    {
+      $unwind: "$menuItems", //? unwind the menuItems
+    },
+    {
+      $group: {
+        _id: "$menuIems.category",
+        quantity: { $sum: 1 },
+        revenue: { $sum: "$menuItems.price" },
+      },
+    },
+  ]);
+  res.send(orderPipeline);
+});
 
 //!----------------------admin home stats api ends
 
