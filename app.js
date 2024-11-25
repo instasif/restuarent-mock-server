@@ -85,6 +85,39 @@ const verifyAdmin = async (req, res, next) => {
 
 //!------------- verifyAdmin middleware end
 
+//!----------------------admin home stats api starts
+
+//stats or analytics
+app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
+  const users = await User.estimatedDocumentCount();
+  const menuItems = await Menu.estimatedDocumentCount();
+  const orders = await Payment.estimatedDocumentCount();
+
+  //? this not a best practice
+  // const payments = await Payment.find({});
+  // const revenue = payments.reduce(
+  //   (total, payment) => +payment.price + total,
+  //   0
+  // );
+
+  const revenuePipeline = await Payment.aggregate([
+    {
+      $group: {
+        _id: null,
+        totalRevenue: {
+          $sum: "$price",
+        },
+      },
+    },
+  ]);
+  const revenue = revenuePipeline.length > 0 ? revenuePipeline[0] : 0;
+  res.send({ users, menuItems, orders, revenue });
+});
+
+
+
+//!----------------------admin home stats api ends
+
 app.get("/payments", async (req, res) => {
   // console.log(req.decoded.email);
   const email = req.query.email;
