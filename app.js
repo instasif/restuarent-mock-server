@@ -12,6 +12,23 @@ const { Payment } = require("./models/Payment");
 app.use(express.json());
 app.use(cors());
 
+/*
+app.post("/all-menu", async (req, res) => {
+  try {
+    const data = req.body; // Corrected typo
+    const result = await Menu.insertMany(data); // Insert multiple documents
+    res.status(201).send(result); // Send a 201 status for created resources
+  } catch (error) {
+    res.status(400).send(error); // Send appropriate status and error message
+  }
+});
+
+app.delete("/all-menu", async(req, res) =>{
+  const result = await Payment.deleteMany({});
+  res.send(result)
+})
+  */
+
 //?-------------Payment start
 const stripe = require("stripe")(process.env.STRIPE_SECRET_KEY);
 
@@ -114,7 +131,7 @@ app.get("/admin-stats", verifyToken, verifyAdmin, async (req, res) => {
   res.send({ users, menuItems, orders, revenue });
 });
 
-app.get("/order-stats", async (req, res) => {
+app.get("/order-stats", verifyToken, verifyAdmin, async (req, res) => {
   const orderPipeline = await Payment.aggregate([
     {
       $unwind: "$menuIds", //?splits the array into separate documents
@@ -132,9 +149,17 @@ app.get("/order-stats", async (req, res) => {
     },
     {
       $group: {
-        _id: "$menuIems.category",
+        _id: "$menuItems.category",
         quantity: { $sum: 1 },
         revenue: { $sum: "$menuItems.price" },
+      },
+    },
+    {
+      $project: {
+        _id: 0,
+        category: "$_id",
+        quantity: "$quantity",
+        revenue: "$revenue",
       },
     },
   ]);

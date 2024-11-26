@@ -26,6 +26,10 @@ const cartSchema = mongoose.Schema(
       type: Number,
       required: true,
     },
+    category: {
+      type: String,
+      required: true,
+    },
     email: {
       type: String,
       validate: [validator.isEmail, "Please provide a valid email"],
