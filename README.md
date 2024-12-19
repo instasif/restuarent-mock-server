@@ -1,2 +1,2 @@
 # restuarent-mock-server
-Domain: http://localhost:5000
+Domain: https://mock-restaurant-nu.vercel.app

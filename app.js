@@ -1,8 +1,6 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
-const mongoose = require("mongoose");
-const { ObjectId } = mongoose.Schema.Types;
 const { Menu } = require("./models/menu");
 const { Review } = require("./models/review");
 const { Cart } = require("./models/cart");
